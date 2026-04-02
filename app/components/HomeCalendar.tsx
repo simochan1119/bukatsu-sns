@@ -11,6 +11,7 @@ import {
 } from "firebase/firestore";
 
 type AvailabilityMap = Record<string, boolean>;
+type UserRole = "student" | "leader" | "teacher";
 
 type EventData = {
   time?: string | null;
@@ -23,7 +24,7 @@ type UserData = {
   id: string;
   displayName?: string;
   availability?: AvailabilityMap;
-  role?: "student" | "teacher";
+  role?: UserRole;
   [key: string]: unknown;
 };
 
@@ -57,8 +58,16 @@ export default function HomeCalendar() {
   const [events, setEvents] = useState<Record<string, EventData>>({});
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [myAvailability, setMyAvailability] = useState<AvailabilityMap>({});
-  const [role, setRole] = useState<"student" | "teacher">("student");
+  const [role, setRole] = useState<UserRole>("student");
   const [month, setMonth] = useState(() => new Date());
+
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [eventForm, setEventForm] = useState({
+    title: "",
+    time: "",
+    note: "",
+  });
+  const [savingEvent, setSavingEvent] = useState(false);
 
   const user = auth.currentUser;
 
@@ -75,7 +84,7 @@ export default function HomeCalendar() {
 
         const me = list.find((u) => u.id === user?.uid);
         setMyAvailability(me?.availability || {});
-        setRole(me?.role || "student");
+        setRole((me?.role as UserRole) || "student");
 
         const eventSnap = await getDocs(collection(db, "events"));
         const ev: Record<string, EventData> = {};
@@ -92,6 +101,8 @@ export default function HomeCalendar() {
   }, [user]);
 
   const days = useMemo(() => getMonthMatrix(month), [month]);
+  const todayKey = formatDateKey(new Date());
+  const canEditEvent = role === "teacher" || role === "leader";
 
   const prevMonth = () => {
     setMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
@@ -103,8 +114,13 @@ export default function HomeCalendar() {
 
   const goToToday = () => {
     const today = new Date();
+    const key = formatDateKey(today);
     setMonth(new Date(today.getFullYear(), today.getMonth(), 1));
-    setSelectedDate(formatDateKey(today));
+    setSelectedDate(key);
+  };
+
+  const openDayDetail = (dateKey: string) => {
+    setSelectedDate(dateKey);
   };
 
   const toggle = async (dateKey: string) => {
@@ -139,34 +155,53 @@ export default function HomeCalendar() {
     } catch (error) {
       console.error("参加状態更新エラー:", error);
       setMyAvailability(prevState);
+      alert("保存できませんでした");
     }
   };
 
-  const editEvent = async (dateKey: string) => {
-    const current = events[dateKey];
+  const openEventModal = () => {
+    if (!selectedDate) return;
 
-    const title = prompt("活動内容", current?.title ?? "");
-    if (title === null) return;
+    const current = events[selectedDate];
+    setEventForm({
+      title: current?.title ? String(current.title) : "",
+      time: current?.time ? String(current.time) : "",
+      note: current?.note ? String(current.note) : "",
+    });
+    setIsModalOpen(true);
+  };
 
-    const time = prompt("時間（例: 15:40-18:00）", current?.time ?? "");
-    if (time === null) return;
+  const closeEventModal = () => {
+    if (savingEvent) return;
+    setIsModalOpen(false);
+  };
 
-    const note = prompt("メモ", current?.note ?? "");
-    if (note === null) return;
+  const saveEvent = async () => {
+    if (!selectedDate) return;
+    if (!canEditEvent) return;
+
+    setSavingEvent(true);
 
     try {
-      await setDoc(doc(db, "events", dateKey), {
-        title,
-        time,
-        note,
-      });
+      const payload = {
+        title: eventForm.title.trim(),
+        time: eventForm.time.trim(),
+        note: eventForm.note.trim(),
+      };
+
+      await setDoc(doc(db, "events", selectedDate), payload);
 
       setEvents((prev) => ({
         ...prev,
-        [dateKey]: { title, time, note },
+        [selectedDate]: payload,
       }));
+
+      setIsModalOpen(false);
     } catch (error) {
       console.error("イベント更新エラー:", error);
+      alert("イベントを保存できませんでした");
+    } finally {
+      setSavingEvent(false);
     }
   };
 
@@ -175,7 +210,6 @@ export default function HomeCalendar() {
   };
 
   const dayNames = ["日", "月", "火", "水", "木", "金", "土"];
-  const todayKey = formatDateKey(new Date());
 
   return (
     <div className="calendar-wrap">
@@ -239,7 +273,7 @@ export default function HomeCalendar() {
               <button
                 key={key}
                 type="button"
-                onClick={() => setSelectedDate(key)}
+                onClick={() => openDayDetail(key)}
                 className={classNames}
               >
                 <div className="day-top">
@@ -247,7 +281,9 @@ export default function HomeCalendar() {
                 </div>
 
                 <div className="day-middle">
-                  <div className="time-text">{event?.time?.trim() ? event.time : "-"}</div>
+                  <div className="time-text">
+                    {event?.time?.trim() ? event.time : "-"}
+                  </div>
                 </div>
 
                 <div className="day-bottom">
@@ -264,7 +300,16 @@ export default function HomeCalendar() {
       {selectedDate && (
         <div className="detail-card">
           <div className="detail-header">
-            <h3 className="detail-title">{selectedDate}</h3>
+            <div>
+              <h3 className="detail-title">{selectedDate}</h3>
+              <p className="detail-subtitle">
+                {role === "teacher"
+                  ? "教員モード"
+                  : role === "leader"
+                  ? "leader モード"
+                  : "生徒モード"}
+              </p>
+            </div>
           </div>
 
           {events[selectedDate] ? (
@@ -297,10 +342,10 @@ export default function HomeCalendar() {
               {myAvailability[selectedDate] ? "参加取り消し" : "参加する"}
             </button>
 
-            {role === "teacher" && (
+            {canEditEvent && (
               <button
                 type="button"
-                onClick={() => editEvent(selectedDate)}
+                onClick={openEventModal}
                 className="action-btn edit-btn"
               >
                 イベント編集
@@ -316,12 +361,109 @@ export default function HomeCalendar() {
                 {getParticipants(selectedDate).map((u) => (
                   <li key={u.id} className="participant-item">
                     {u.displayName || "名前未設定"}
+                    {u.role === "teacher" && (
+                      <span className="mini-role teacher">teacher</span>
+                    )}
+                    {u.role === "leader" && (
+                      <span className="mini-role leader">leader</span>
+                    )}
                   </li>
                 ))}
               </ul>
             ) : (
               <p className="participants-empty">まだいません</p>
             )}
+          </div>
+        </div>
+      )}
+
+      {isModalOpen && (
+        <div className="modal-root" onClick={closeEventModal}>
+          <div
+            className="modal-backdrop"
+            aria-hidden="true"
+          />
+          <div
+            className="bottom-sheet"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="event-edit-title"
+          >
+            <div className="sheet-handle" />
+
+            <div className="sheet-header">
+              <div>
+                <h3 id="event-edit-title" className="sheet-title">
+                  イベント編集
+                </h3>
+                <p className="sheet-date">{selectedDate}</p>
+              </div>
+
+              <button
+                type="button"
+                className="close-btn"
+                onClick={closeEventModal}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">活動内容</label>
+              <input
+                className="form-input"
+                value={eventForm.title}
+                onChange={(e) =>
+                  setEventForm((prev) => ({ ...prev, title: e.target.value }))
+                }
+                placeholder="例：練習試合、ミーティング"
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">時間</label>
+              <input
+                className="form-input"
+                value={eventForm.time}
+                onChange={(e) =>
+                  setEventForm((prev) => ({ ...prev, time: e.target.value }))
+                }
+                placeholder="例：15:40-18:00"
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">メモ</label>
+              <textarea
+                className="form-textarea"
+                value={eventForm.note}
+                onChange={(e) =>
+                  setEventForm((prev) => ({ ...prev, note: e.target.value }))
+                }
+                placeholder="持ち物や連絡事項"
+                rows={4}
+              />
+            </div>
+
+            <div className="sheet-actions">
+              <button
+                type="button"
+                className="sheet-btn secondary"
+                onClick={closeEventModal}
+                disabled={savingEvent}
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                className="sheet-btn primary"
+                onClick={saveEvent}
+                disabled={savingEvent}
+              >
+                {savingEvent ? "保存中..." : "保存する"}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -338,7 +480,7 @@ export default function HomeCalendar() {
           background: #ffffff;
           border: 1px solid #e5e7eb;
           border-radius: 22px;
-          box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+          box-shadow: 0 10px 28px rgba(15, 23, 42, 0.07);
           padding: 18px;
         }
 
@@ -374,7 +516,9 @@ export default function HomeCalendar() {
 
         .nav-btn,
         .today-btn,
-        .action-btn {
+        .action-btn,
+        .sheet-btn,
+        .close-btn {
           border: 1px solid #d1d5db;
           background: #ffffff;
           border-radius: 12px;
@@ -385,7 +529,9 @@ export default function HomeCalendar() {
 
         .nav-btn:hover,
         .today-btn:hover,
-        .action-btn:hover {
+        .action-btn:hover,
+        .sheet-btn:hover,
+        .close-btn:hover {
           transform: translateY(-1px);
           box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
         }
@@ -431,7 +577,7 @@ export default function HomeCalendar() {
         }
 
         .day-cell {
-          height: 126px; /* ← ここで完全に高さ固定 */
+          height: 126px;
           border-radius: 18px;
           border: 1px solid #dbe1ea;
           background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
@@ -555,6 +701,13 @@ export default function HomeCalendar() {
           color: #0f172a;
         }
 
+        .detail-subtitle {
+          margin: 4px 0 0;
+          color: #64748b;
+          font-size: 0.9rem;
+          font-weight: 700;
+        }
+
         .detail-body {
           display: grid;
           gap: 8px;
@@ -608,7 +761,192 @@ export default function HomeCalendar() {
         }
 
         .participant-item {
-          margin: 4px 0;
+          margin: 6px 0;
+        }
+
+        .mini-role {
+          display: inline-block;
+          margin-left: 8px;
+          padding: 2px 8px;
+          border-radius: 999px;
+          font-size: 0.72rem;
+          font-weight: 800;
+          vertical-align: middle;
+        }
+
+        .mini-role.teacher {
+          background: #dbeafe;
+          color: #1d4ed8;
+        }
+
+        .mini-role.leader {
+          background: #ede9fe;
+          color: #6d28d9;
+        }
+
+        .modal-root {
+          position: fixed;
+          inset: 0;
+          z-index: 1000;
+        }
+
+        .modal-backdrop {
+          position: absolute;
+          inset: 0;
+          background: rgba(15, 23, 42, 0.42);
+          backdrop-filter: blur(2px);
+        }
+
+        .bottom-sheet {
+          position: absolute;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: #ffffff;
+          border-radius: 22px 22px 0 0;
+          padding: 14px 16px calc(20px + env(safe-area-inset-bottom));
+          box-shadow: 0 -10px 30px rgba(15, 23, 42, 0.16);
+          animation: slideUp 0.22s ease-out;
+          max-height: 88vh;
+          overflow-y: auto;
+        }
+
+        @keyframes slideUp {
+          from {
+            transform: translateY(100%);
+            opacity: 0.8;
+          }
+          to {
+            transform: translateY(0);
+            opacity: 1;
+          }
+        }
+
+        .sheet-handle {
+          width: 52px;
+          height: 6px;
+          border-radius: 999px;
+          background: #cbd5e1;
+          margin: 0 auto 12px;
+        }
+
+        .sheet-header {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 12px;
+          margin-bottom: 14px;
+        }
+
+        .sheet-title {
+          margin: 0;
+          font-size: 1.1rem;
+          font-weight: 900;
+          color: #0f172a;
+        }
+
+        .sheet-date {
+          margin: 4px 0 0;
+          color: #64748b;
+          font-size: 0.92rem;
+          font-weight: 700;
+        }
+
+        .close-btn {
+          width: 40px;
+          height: 40px;
+          font-size: 1.2rem;
+          flex-shrink: 0;
+        }
+
+        .form-group {
+          display: grid;
+          gap: 6px;
+          margin-bottom: 14px;
+        }
+
+        .form-label {
+          font-size: 0.92rem;
+          font-weight: 800;
+          color: #334155;
+        }
+
+        .form-input,
+        .form-textarea {
+          width: 100%;
+          box-sizing: border-box;
+          border: 1px solid #d1d5db;
+          border-radius: 14px;
+          padding: 12px 14px;
+          font-size: 0.96rem;
+          outline: none;
+          background: #fff;
+          transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .form-input:focus,
+        .form-textarea:focus {
+          border-color: #60a5fa;
+          box-shadow: 0 0 0 4px rgba(96, 165, 250, 0.15);
+        }
+
+        .form-textarea {
+          resize: vertical;
+          min-height: 110px;
+        }
+
+        .sheet-actions {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px;
+          margin-top: 10px;
+        }
+
+        .sheet-btn {
+          height: 48px;
+          font-size: 0.95rem;
+          font-weight: 800;
+        }
+
+        .sheet-btn.primary {
+          background: #2563eb;
+          color: white;
+          border-color: #2563eb;
+        }
+
+        .sheet-btn.secondary {
+          background: #f8fafc;
+          color: #0f172a;
+        }
+
+        .sheet-btn:disabled,
+        .close-btn:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+          transform: none;
+          box-shadow: none;
+        }
+
+        @media (min-width: 900px) {
+          .bottom-sheet {
+            left: 50%;
+            right: auto;
+            width: 560px;
+            transform: translateX(-50%);
+            border-radius: 24px;
+            bottom: 20px;
+          }
+
+          @keyframes slideUp {
+            from {
+              transform: translate(-50%, 40px);
+              opacity: 0.8;
+            }
+            to {
+              transform: translate(-50%, 0);
+              opacity: 1;
+            }
+          }
         }
 
         @media (max-width: 768px) {
@@ -638,7 +976,7 @@ export default function HomeCalendar() {
           }
 
           .day-cell {
-            height: 108px; /* スマホでも完全固定 */
+            height: 108px;
             border-radius: 14px;
             padding: 8px 4px;
           }
@@ -665,6 +1003,10 @@ export default function HomeCalendar() {
 
           .nav-btn {
             width: 38px;
+          }
+
+          .sheet-actions {
+            grid-template-columns: 1fr;
           }
         }
 
