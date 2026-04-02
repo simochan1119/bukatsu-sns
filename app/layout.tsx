@@ -12,7 +12,7 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-export const metadata = {
+export const metadata: Metadata = {
   title: "部活SNS",
   description: "部員のスキル共有SNS",
   applicationName: "部活SNS",

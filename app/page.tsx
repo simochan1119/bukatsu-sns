@@ -6,6 +6,7 @@ import { signOut, User } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { observeAuthState } from "@/lib/auth";
+import HomeCalendar from "@/app/components/HomeCalendar";
 
 type Badge = {
   name: string;
@@ -214,6 +215,11 @@ export default function Home() {
     ログアウト
   </button>
 </div>
+
+      </div>
+
+      <div style={{ marginTop: 24 }}>
+        <HomeCalendar />
       </div>
     </main>
   );
