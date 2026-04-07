@@ -5,20 +5,30 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { BadgeChip, GradeChip, RoleChip } from "@/app/components/BadgeChips";
 
-type Badge = {
-  name: string;
-  level: number;
+type Role = "student" | "teacher" | "leader";
+
+type FirestoreUserDoc = {
+  displayName?: string;
+  email?: string;
+  role?: Role;
+  grade?: number;
+  selfTags?: string[];
+  certifiedTags?: string[];
+  badges?: string[];
+  bio?: string;
 };
 
 type UserProfile = {
   uid: string;
   displayName: string;
   email: string;
-  role: "student" | "teacher";
-  selfTags?: string[];
-  certifiedTags?: string[];
-  badges?: Badge[] | string[];
+  role: Role;
+  grade?: number;
+  selfTags: string[];
+  certifiedTags: string[];
+  badges: string[];
   bio?: string;
 };
 
@@ -37,7 +47,18 @@ export default function MemberProfilePage() {
         const snap = await getDoc(doc(db, "users", uid));
 
         if (snap.exists()) {
-          setProfile(snap.data() as UserProfile);
+          const data = snap.data() as FirestoreUserDoc;
+          setProfile({
+            uid,
+            displayName: data.displayName ?? "名無し",
+            email: data.email ?? "",
+            role: (data.role ?? "student") as Role,
+            grade: typeof data.grade === "number" ? data.grade : undefined,
+            selfTags: Array.isArray(data.selfTags) ? data.selfTags : [],
+            certifiedTags: Array.isArray(data.certifiedTags) ? data.certifiedTags : [],
+            badges: Array.isArray(data.badges) ? data.badges : [],
+            bio: data.bio ?? "",
+          });
         } else {
           setProfile(null);
         }
@@ -76,8 +97,19 @@ export default function MemberProfilePage() {
         <Link href="/members">← 部員一覧へ戻る</Link>
       </p>
 
-      <h1 style={{ fontSize: 30, fontWeight: "bold", marginBottom: 12 }}>
+      <h1
+        style={{
+          fontSize: 30,
+          fontWeight: "bold",
+          marginBottom: 12,
+          display: "flex",
+          alignItems: "center",
+          flexWrap: "wrap",
+        }}
+      >
         {profile.displayName}
+        {profile.role !== "student" && <RoleChip role={profile.role} />}
+        <GradeChip grade={profile.grade} />
       </h1>
 
       <div
@@ -89,10 +121,8 @@ export default function MemberProfilePage() {
           gap: 12,
         }}
       >
-        
-
         <p>
-          <strong>ロール:</strong> {profile.role}
+          <strong>学年:</strong> {profile.grade ? `${profile.grade}年生` : "未設定"}
         </p>
 
         <p>
@@ -102,7 +132,7 @@ export default function MemberProfilePage() {
         <div>
           <strong>自己申告タグ:</strong>
           <div style={{ marginTop: 6 }}>
-            {profile.selfTags?.length ? (
+            {profile.selfTags.length ? (
               profile.selfTags.map((tag, index) => (
                 <span
                   key={index}
@@ -127,7 +157,7 @@ export default function MemberProfilePage() {
         <div>
           <strong>教員認定タグ:</strong>
           <div style={{ marginTop: 6 }}>
-            {profile.certifiedTags?.length ? (
+            {profile.certifiedTags.length ? (
               profile.certifiedTags.map((tag, index) => (
                 <span
                   key={index}
@@ -138,6 +168,7 @@ export default function MemberProfilePage() {
                     padding: "6px 10px",
                     borderRadius: 999,
                     border: "1px solid #4a90e2",
+                    background: "#f7fbff",
                   }}
                 >
                   {tag}
@@ -152,38 +183,10 @@ export default function MemberProfilePage() {
         <div>
           <strong>バッジ:</strong>
           <div style={{ marginTop: 6 }}>
-            {Array.isArray(profile.badges) && profile.badges.length > 0 ? (
-              <div style={{ display: "grid", gap: 8 }}>
-                {profile.badges.map((badge, index) => {
-                  if (typeof badge === "string") {
-                    return (
-                      <div
-                        key={index}
-                        style={{
-                          border: "1px solid #ddd",
-                          borderRadius: 10,
-                          padding: 10,
-                        }}
-                      >
-                        {badge}
-                      </div>
-                    );
-                  }
-
-                  return (
-                    <div
-                      key={index}
-                      style={{
-                        border: "1px solid #ddd",
-                        borderRadius: 10,
-                        padding: 10,
-                      }}
-                    >
-                      {badge.name} Lv{badge.level}
-                    </div>
-                  );
-                })}
-              </div>
+            {profile.badges.length ? (
+              profile.badges.map((badge, index) => (
+                <BadgeChip key={`${badge}-${index}`} label={badge} />
+              ))
             ) : (
               <p>まだありません</p>
             )}

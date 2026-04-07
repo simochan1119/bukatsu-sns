@@ -3,24 +3,62 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { auth, db } from "@/lib/firebase";
-import { collection, doc, getDoc, getDocs, updateDoc } from "firebase/firestore";
+import {
+  addDoc,
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  serverTimestamp,
+  updateDoc,
+  where,
+} from "firebase/firestore";
+import {
+  BadgeChip,
+  GradeChip,
+  RoleChip,
+} from "@/app/components/BadgeChips";
 
-type Badge = {
-  name: string;
-  level: number;
+type Role = "student" | "teacher" | "leader";
+
+type FirestoreUserDoc = {
+  displayName?: string;
+  email?: string;
+  role?: Role;
+  grade?: number;
+  bio?: string;
+  selfTags?: string[];
+  certifiedTags?: string[];
+  badges?: string[];
+};
+
+type FirestoreBadgeMasterDoc = {
+  name?: string;
 };
 
 type AppUser = {
   uid: string;
   displayName: string;
-  role: "student" | "teacher";
-  certifiedTags?: string[];
-  badges?: Badge[];
+  role: Role;
+  grade?: number;
+  certifiedTags: string[];
+  badges: string[];
+};
+
+type BadgeMasterItem = {
+  id: string;
+  name: string;
 };
 
 export default function AdminEditPage() {
   const [currentRole, setCurrentRole] = useState<string | null>(null);
   const [users, setUsers] = useState<AppUser[]>([]);
+  const [badgeMaster, setBadgeMaster] = useState<BadgeMasterItem[]>([]);
+  const [selectedBadgeMap, setSelectedBadgeMap] = useState<Record<string, string>>(
+    {}
+  );
+  const [newBadgeMap, setNewBadgeMap] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -42,7 +80,7 @@ export default function AdminEditPage() {
           return;
         }
 
-        const myData = mySnap.data();
+        const myData = mySnap.data() as FirestoreUserDoc;
         const role = myData.role ?? "student";
         setCurrentRole(role);
 
@@ -51,9 +89,37 @@ export default function AdminEditPage() {
           return;
         }
 
-        const snap = await getDocs(collection(db, "users"));
-        const list = snap.docs.map((d) => d.data() as AppUser);
-        setUsers(list);
+        const usersSnap = await getDocs(collection(db, "users"));
+        const userList: AppUser[] = usersSnap.docs.map((d) => {
+          const data = d.data() as FirestoreUserDoc;
+
+          return {
+            uid: d.id,
+            displayName: data.displayName ?? "名無し",
+            role: (data.role ?? "student") as Role,
+            grade: typeof data.grade === "number" ? data.grade : undefined,
+            certifiedTags: Array.isArray(data.certifiedTags)
+              ? data.certifiedTags
+              : [],
+            badges: Array.isArray(data.badges) ? data.badges : [],
+          };
+        });
+
+        setUsers(userList);
+
+        const badgeSnap = await getDocs(collection(db, "badgeMaster"));
+        const badgeList: BadgeMasterItem[] = badgeSnap.docs
+          .map((d) => {
+            const data = d.data() as FirestoreBadgeMasterDoc;
+            return {
+              id: d.id,
+              name: data.name ?? "",
+            };
+          })
+          .filter((item) => item.name.trim() !== "")
+          .sort((a, b) => a.name.localeCompare(b.name, "ja"));
+
+        setBadgeMaster(badgeList);
       } catch (error) {
         console.error("教員画面の読み込み失敗", error);
       } finally {
@@ -64,6 +130,20 @@ export default function AdminEditPage() {
     load();
   }, []);
 
+  const normalizeArray = (arr?: string[]) => {
+    return Array.from(new Set((arr || []).map((v) => v.trim()).filter(Boolean)));
+  };
+
+  const handleGradeChange = (index: number, value: string) => {
+    const newUsers = [...users];
+    const num = Number(value);
+
+    newUsers[index].grade =
+      value.trim() === "" || Number.isNaN(num) ? undefined : num;
+
+    setUsers(newUsers);
+  };
+
   const handleCertifiedTagsChange = (index: number, value: string) => {
     const newUsers = [...users];
     newUsers[index].certifiedTags = value
@@ -73,36 +153,73 @@ export default function AdminEditPage() {
     setUsers(newUsers);
   };
 
-  const handleBadgesChange = (index: number, value: string) => {
-    const badges = value
-      .split(",")
-      .map((item) => item.trim())
-      .filter(Boolean)
-      .map((item) => {
-        const [name, level] = item.split(":").map((v) => v.trim());
-        return {
-          name,
-          level: Number(level || 1),
-        };
-      });
+  const addExistingBadgeToUser = (index: number) => {
+    const user = users[index];
+    const selected = selectedBadgeMap[user.uid]?.trim();
+
+    if (!selected) return;
 
     const newUsers = [...users];
-    newUsers[index].badges = badges;
+    const currentBadges = normalizeArray(newUsers[index].badges);
+    newUsers[index].badges = normalizeArray([...currentBadges, selected]);
     setUsers(newUsers);
   };
 
-  const badgeArrayToInput = (badges?: Badge[]) => {
-    if (!badges || badges.length === 0) return "";
-    return badges.map((b) => `${b.name}:${b.level}`).join(", ");
+  const removeBadgeFromUser = (index: number, badgeName: string) => {
+    const newUsers = [...users];
+    newUsers[index].badges = (newUsers[index].badges || []).filter(
+      (b) => b !== badgeName
+    );
+    setUsers(newUsers);
+  };
+
+  const createNewBadgeAndAddToUser = async (index: number) => {
+    const user = users[index];
+    const input = (newBadgeMap[user.uid] || "").trim();
+
+    if (!input) return;
+
+    try {
+      const q = query(collection(db, "badgeMaster"), where("name", "==", input));
+      const existing = await getDocs(q);
+
+      if (existing.empty) {
+        await addDoc(collection(db, "badgeMaster"), {
+          name: input,
+          createdAt: serverTimestamp(),
+        });
+
+        setBadgeMaster((prev) =>
+          [...prev, { id: `tmp-${Date.now()}`, name: input }].sort((a, b) =>
+            a.name.localeCompare(b.name, "ja")
+          )
+        );
+      }
+
+      const newUsers = [...users];
+      const currentBadges = normalizeArray(newUsers[index].badges);
+      newUsers[index].badges = normalizeArray([...currentBadges, input]);
+      setUsers(newUsers);
+
+      setNewBadgeMap((prev) => ({
+        ...prev,
+        [user.uid]: "",
+      }));
+    } catch (error) {
+      console.error("新規バッジ追加失敗", error);
+      alert("新規バッジの追加に失敗しました");
+    }
   };
 
   const saveUser = async (user: AppUser) => {
     try {
       await updateDoc(doc(db, "users", user.uid), {
-        certifiedTags: user.certifiedTags || [],
-        badges: user.badges || [],
+        grade: user.grade ?? null,
+        certifiedTags: normalizeArray(user.certifiedTags),
+        badges: normalizeArray(user.badges),
       });
-      alert("保存できました");
+
+      alert(`${user.displayName} を保存できました`);
     } catch (error) {
       console.error("保存失敗", error);
       alert("保存に失敗しました");
@@ -132,7 +249,7 @@ export default function AdminEditPage() {
   }
 
   return (
-    <main style={{ maxWidth: 900, margin: "0 auto", padding: 24 }}>
+    <main style={{ maxWidth: 980, margin: "0 auto", padding: 24 }}>
       <h1 style={{ fontSize: 28, fontWeight: "bold", marginBottom: 16 }}>
         教員用編集画面
       </h1>
@@ -150,14 +267,42 @@ export default function AdminEditPage() {
               borderRadius: 12,
               padding: 16,
               display: "grid",
-              gap: 10,
+              gap: 12,
             }}
           >
-            <h2 style={{ fontSize: 20, fontWeight: "bold", margin: 0 }}>
+            <h2
+              style={{
+                fontSize: 20,
+                fontWeight: "bold",
+                margin: 0,
+                display: "flex",
+                alignItems: "center",
+                flexWrap: "wrap",
+              }}
+            >
               {u.displayName}
+              {u.role !== "student" && <RoleChip role={u.role} />}
+              <GradeChip grade={u.grade} />
             </h2>
 
-            <p style={{ margin: 0 }}>ロール: {u.role}</p>
+            <div>
+              <label style={{ display: "block", marginBottom: 6 }}>学年</label>
+              <select
+                value={u.grade ?? ""}
+                onChange={(e) => handleGradeChange(index, e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: 10,
+                  border: "1px solid #ccc",
+                  borderRadius: 8,
+                }}
+              >
+                <option value="">未設定</option>
+                <option value="1">1年生</option>
+                <option value="2">2年生</option>
+                <option value="3">3年生</option>
+              </select>
+            </div>
 
             <div>
               <label style={{ display: "block", marginBottom: 6 }}>
@@ -167,26 +312,147 @@ export default function AdminEditPage() {
                 type="text"
                 value={(u.certifiedTags || []).join(", ")}
                 onChange={(e) => handleCertifiedTagsChange(index, e.target.value)}
-                style={{ width: "100%", padding: 10 }}
+                style={{
+                  width: "100%",
+                  padding: 10,
+                  border: "1px solid #ccc",
+                  borderRadius: 8,
+                }}
+                placeholder="例: C言語得意, 後輩指導OK"
               />
             </div>
 
             <div>
+              <div style={{ marginBottom: 6, fontWeight: "bold" }}>
+                現在のバッジ
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {(u.badges || []).length > 0 ? (
+                  u.badges.map((badge) => (
+                    <span
+                      key={badge}
+                      style={{ display: "inline-flex", alignItems: "center" }}
+                    >
+                      <BadgeChip label={badge} />
+                      <button
+                        type="button"
+                        onClick={() => removeBadgeFromUser(index, badge)}
+                        style={{
+                          marginLeft: -2,
+                          marginRight: 8,
+                          cursor: "pointer",
+                          border: "1px solid #ccc",
+                          background: "#fff",
+                          borderRadius: 999,
+                          width: 24,
+                          height: 24,
+                        }}
+                        title="このバッジを外す"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))
+                ) : (
+                  <span>まだありません</span>
+                )}
+              </div>
+            </div>
+
+            <div>
               <label style={{ display: "block", marginBottom: 6 }}>
-                バッジ（例: Unity:3, 後輩サポーター:2）
+                既存バッジから追加
               </label>
-              <input
-                type="text"
-                value={badgeArrayToInput(u.badges)}
-                onChange={(e) => handleBadgesChange(index, e.target.value)}
-                style={{ width: "100%", padding: 10 }}
-              />
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <select
+                  value={selectedBadgeMap[u.uid] || ""}
+                  onChange={(e) =>
+                    setSelectedBadgeMap((prev) => ({
+                      ...prev,
+                      [u.uid]: e.target.value,
+                    }))
+                  }
+                  style={{
+                    flex: "1 1 260px",
+                    minWidth: 220,
+                    padding: 10,
+                    border: "1px solid #ccc",
+                    borderRadius: 8,
+                  }}
+                >
+                  <option value="">選んでください</option>
+                  {badgeMaster.map((badge) => (
+                    <option key={badge.id} value={badge.name}>
+                      {badge.name}
+                    </option>
+                  ))}
+                </select>
+
+                <button
+                  type="button"
+                  onClick={() => addExistingBadgeToUser(index)}
+                  style={{
+                    padding: "8px 12px",
+                    cursor: "pointer",
+                    borderRadius: 8,
+                    border: "1px solid #ccc",
+                    background: "#fff",
+                  }}
+                >
+                  追加
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label style={{ display: "block", marginBottom: 6 }}>
+                新しいバッジを作って追加
+              </label>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <input
+                  type="text"
+                  value={newBadgeMap[u.uid] || ""}
+                  onChange={(e) =>
+                    setNewBadgeMap((prev) => ({
+                      ...prev,
+                      [u.uid]: e.target.value,
+                    }))
+                  }
+                  placeholder="例: C言語基礎研修"
+                  style={{
+                    flex: "1 1 260px",
+                    minWidth: 220,
+                    padding: 10,
+                    border: "1px solid #ccc",
+                    borderRadius: 8,
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => createNewBadgeAndAddToUser(index)}
+                  style={{
+                    padding: "8px 12px",
+                    cursor: "pointer",
+                    borderRadius: 8,
+                    border: "1px solid #ccc",
+                    background: "#fff",
+                  }}
+                >
+                  新規作成して追加
+                </button>
+              </div>
             </div>
 
             <div>
               <button
                 onClick={() => saveUser(u)}
-                style={{ padding: "8px 12px", cursor: "pointer" }}
+                style={{
+                  padding: "8px 12px",
+                  cursor: "pointer",
+                  borderRadius: 8,
+                  border: "1px solid #ccc",
+                  background: "#fff",
+                }}
               >
                 保存
               </button>
