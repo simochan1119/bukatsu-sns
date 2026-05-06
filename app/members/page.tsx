@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { BadgeChip, GradeChip, RoleChip } from "@/app/components/BadgeChips";
+import { styles } from "@/app/components/ui";
 
 type Role = "student" | "teacher" | "leader";
 
@@ -15,7 +16,9 @@ type FirestoreUserDoc = {
   grade?: number;
   selfTags?: string[];
   badges?: string[];
+  certifiedTags?: string[];
   bio?: string;
+  photoURL?: string;
 };
 
 type Member = {
@@ -26,7 +29,9 @@ type Member = {
   grade?: number;
   selfTags: string[];
   badges: string[];
+  certifiedTags: string[];
   bio?: string;
+  photoURL?: string;
 };
 
 const rolePriority: Record<Role, number> = {
@@ -41,112 +46,144 @@ export default function MembersPage() {
 
   useEffect(() => {
     const fetchMembers = async () => {
-      try {
-        const snap = await getDocs(collection(db, "users"));
+      const snap = await getDocs(collection(db, "users"));
 
-        const list: Member[] = snap.docs.map((docSnap) => {
-          const data = docSnap.data() as FirestoreUserDoc;
+      const list: Member[] = snap.docs.map((docSnap) => {
+        const data = docSnap.data() as FirestoreUserDoc;
 
-          return {
-            uid: docSnap.id,
-            displayName: data.displayName ?? "名無し",
-            email: data.email ?? "",
-            role: (data.role ?? "student") as Role,
-            grade: typeof data.grade === "number" ? data.grade : undefined,
-            selfTags: Array.isArray(data.selfTags) ? data.selfTags : [],
-            badges: Array.isArray(data.badges) ? data.badges : [],
-            bio: data.bio ?? "",
-          };
-        });
+        return {
+          uid: docSnap.id,
+          displayName: data.displayName ?? "名無し",
+          email: data.email ?? "",
+          role: (data.role ?? "student") as Role,
+          grade: data.grade,
+          selfTags: data.selfTags ?? [],
+          badges: data.badges ?? [],
+          certifiedTags: data.certifiedTags ?? [],
+          bio: data.bio ?? "",
+          photoURL: data.photoURL,
+        };
+      });
 
-        list.sort((a, b) => {
-          const roleDiff = rolePriority[b.role] - rolePriority[a.role];
-          if (roleDiff !== 0) return roleDiff;
+      list.sort((a, b) => {
+        const roleDiff = rolePriority[b.role] - rolePriority[a.role];
+        if (roleDiff !== 0) return roleDiff;
+        return (b.grade ?? 0) - (a.grade ?? 0);
+      });
 
-          const gradeA = a.grade ?? 0;
-          const gradeB = b.grade ?? 0;
-          const gradeDiff = gradeB - gradeA;
-          if (gradeDiff !== 0) return gradeDiff;
-
-          return a.displayName.localeCompare(b.displayName, "ja");
-        });
-
-        setMembers(list);
-      } catch (error) {
-        console.error("部員取得失敗", error);
-      } finally {
-        setLoading(false);
-      }
+      setMembers(list);
+      setLoading(false);
     };
 
     fetchMembers();
   }, []);
 
+  if (loading) return <p style={{ padding: 24 }}>読み込み中...</p>;
+
   return (
     <main style={{ maxWidth: 900, margin: "0 auto", padding: 24 }}>
-      <h1 style={{ fontSize: 28, fontWeight: "bold", marginBottom: 16 }}>
-        部員一覧
-      </h1>
+      <h1 style={{ fontSize: 28, marginBottom: 20 }}>部員一覧</h1>
 
-      <p style={{ marginBottom: 16 }}>
-        <Link href="/">ホームへ戻る</Link>
-      </p>
+      <Link href="/" style={styles.linkButton}>
+        ← ホームへ戻る
+      </Link>
 
-      {loading ? (
-        <p>読み込み中...</p>
-      ) : members.length === 0 ? (
-        <p>まだ部員データがありません。</p>
-      ) : (
-        <div style={{ display: "grid", gap: 12 }}>
-          {members.map((member) => (
-            <div
-              key={member.uid}
-              style={{
-                border: "1px solid #ccc",
-                borderRadius: 12,
-                padding: 16,
-              }}
-            >
-              <h2
+      <div style={{ display: "grid", gap: 16, marginTop: 20 }}>
+        {members.map((member) => (
+          <div key={member.uid} style={styles.card}>
+            
+            {/* 上段 */}
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <img
+                src={member.photoURL || "/default-avatar.png"}
                 style={{
-                  fontSize: 20,
-                  fontWeight: "bold",
-                  marginBottom: 8,
-                  display: "flex",
-                  alignItems: "center",
-                  flexWrap: "wrap",
+                  width: 56,
+                  height: 56,
+                  borderRadius: "50%",
+                  objectFit: "cover",
                 }}
-              >
-                <Link href={`/members/${member.uid}`}>{member.displayName}</Link>
-                {member.role !== "student" && <RoleChip role={member.role} />}
-                <GradeChip grade={member.grade} />
-              </h2>
+              />
 
-              <p>
-                自己申告タグ:{" "}
-                {member.selfTags.length ? member.selfTags.join(" / ") : "なし"}
-              </p>
-
-              <div style={{ marginTop: 8, marginBottom: 8 }}>
-                <strong>バッジ:</strong>
-                <div style={{ marginTop: 8 }}>
-                  {member.badges.length ? (
-                    member.badges.map((badge, index) => (
-                      <BadgeChip key={`${badge}-${index}`} label={badge} />
-                    ))
-                  ) : (
-                    <span style={{ marginLeft: 8 }}>まだありません</span>
+              <div>
+                <h2
+                  style={{
+                    margin: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  {member.displayName}
+                  {member.role !== "student" && (
+                    <RoleChip role={member.role} />
                   )}
-                </div>
-              </div>
-
-              <div style={{ marginTop: 8 }}>
-                <Link href={`/members/${member.uid}`}>プロフィールを見る</Link>
+                  <GradeChip grade={member.grade} />
+                </h2>
               </div>
             </div>
-          ))}
-        </div>
-      )}
+
+            {/* 教員タグ */}
+            <div>
+              <strong>教員タグ</strong>
+              <div style={{ marginTop: 6 }}>
+                {member.certifiedTags.length ? (
+                  member.certifiedTags.map((tag, i) => (
+                    <span
+                      key={i}
+                      style={{
+                        background: "#fff8e1",
+                        border: "1px solid #fbc02d",
+                        borderRadius: 999,
+                        padding: "4px 10px",
+                        marginRight: 6,
+                      }}
+                    >
+                      {tag}
+                    </span>
+                  ))
+                ) : (
+                  "なし"
+                )}
+              </div>
+            </div>
+
+            {/* 自己タグ */}
+            <div>
+              <strong>自己タグ</strong>
+              <p style={{ marginTop: 6 }}>
+                {member.selfTags.length
+                  ? member.selfTags.join(" / ")
+                  : "なし"}
+              </p>
+            </div>
+
+            {/* バッジ */}
+            <div>
+              <strong>バッジ</strong>
+              <div style={{ marginTop: 6 }}>
+                {member.badges.length ? (
+                  member.badges.map((b, i) => (
+                    <BadgeChip key={i} label={b} />
+                  ))
+                ) : (
+                  "なし"
+                )}
+              </div>
+            </div>
+
+            {/* 🔥 ボタン化 */}
+            <div style={{ marginTop: 10 }}>
+              <Link
+                href={`/members/${member.uid}`}
+                style={styles.buttonPrimary}
+              >
+                プロフィールを見る
+              </Link>
+            </div>
+          </div>
+        ))}
+      </div>
     </main>
   );
 }

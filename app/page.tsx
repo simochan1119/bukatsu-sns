@@ -7,7 +7,8 @@ import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { observeAuthState } from "@/lib/auth";
 import HomeCalendar from "@/app/components/HomeCalendar";
-import { BadgeChip, RoleChip } from "@/app/components/BadgeChips";
+import { BadgeChip, GradeChip, RoleChip } from "@/app/components/BadgeChips";
+import { styles } from "@/app/components/ui";
 
 type Role = "student" | "teacher" | "leader";
 
@@ -16,10 +17,12 @@ type UserProfile = {
   displayName: string;
   email: string;
   role: Role;
+  grade?: number;
   bio?: string;
   selfTags?: string[];
   certifiedTags?: string[];
   badges?: string[];
+  photoURL?: string;
 };
 
 export default function Home() {
@@ -39,17 +42,23 @@ export default function Home() {
 
       try {
         const snap = await getDoc(doc(db, "users", firebaseUser.uid));
+
         if (snap.exists()) {
-          const data = snap.data() as Omit<UserProfile, "uid">;
+          const data = snap.data();
+
           setProfile({
             uid: firebaseUser.uid,
             displayName: data.displayName ?? "",
             email: data.email ?? firebaseUser.email ?? "",
             role: (data.role ?? "student") as Role,
+            grade: typeof data.grade === "number" ? data.grade : undefined,
             bio: data.bio ?? "",
             selfTags: Array.isArray(data.selfTags) ? data.selfTags : [],
-            certifiedTags: Array.isArray(data.certifiedTags) ? data.certifiedTags : [],
+            certifiedTags: Array.isArray(data.certifiedTags)
+              ? data.certifiedTags
+              : [],
             badges: Array.isArray(data.badges) ? data.badges : [],
+            photoURL: data.photoURL ?? "",
           });
         } else {
           setProfile(null);
@@ -65,29 +74,32 @@ export default function Home() {
   }, []);
 
   const handleLogout = async () => {
-    try {
-      await signOut(auth);
-    } catch (error) {
-      console.error("ログアウト失敗", error);
-    }
+    await signOut(auth);
   };
 
-  const renderTags = (tags?: string[], borderColor = "#ccc", background = "#fff") => {
+  const renderTags = (
+    tags?: string[],
+    borderColor = "#ccc",
+    background = "#fff",
+    color = "#333"
+  ) => {
     if (!tags || tags.length === 0) {
-      return <span>まだありません</span>;
+      return <span style={{ color: "#666" }}>なし</span>;
     }
 
     return (
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
-        {tags.map((tag, index) => (
+        {tags.map((tag, i) => (
           <span
-            key={index}
+            key={i}
             style={{
               border: `1px solid ${borderColor}`,
               background,
+              color,
               borderRadius: 999,
               padding: "6px 10px",
               fontSize: 14,
+              fontWeight: 600,
             }}
           >
             {tag}
@@ -99,13 +111,13 @@ export default function Home() {
 
   const renderBadges = (badges?: string[]) => {
     if (!badges || badges.length === 0) {
-      return <span>まだありません</span>;
+      return <span style={{ color: "#666" }}>なし</span>;
     }
 
     return (
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
-        {badges.map((badge, index) => (
-          <BadgeChip key={`${badge}-${index}`} label={badge} />
+        {badges.map((badge, i) => (
+          <BadgeChip key={`${badge}-${i}`} label={badge} />
         ))}
       </div>
     );
@@ -122,11 +134,16 @@ export default function Home() {
   if (!user) {
     return (
       <main style={{ maxWidth: 720, margin: "0 auto", padding: 24 }}>
-        <h1 style={{ fontSize: 36, fontWeight: "bold", marginBottom: 20 }}>
+        <h1 style={{ fontSize: 32, fontWeight: "bold", marginBottom: 20 }}>
           部活SNS
         </h1>
-        <p style={{ marginBottom: 16 }}>ログインしていません。</p>
-        <Link href="/login">ログイン画面へ</Link>
+
+        <div style={styles.card}>
+          <p style={{ marginBottom: 16 }}>ログインしていません。</p>
+          <Link href="/login" style={styles.buttonPrimary}>
+            ログインへ
+          </Link>
+        </div>
       </main>
     );
   }
@@ -135,76 +152,124 @@ export default function Home() {
 
   return (
     <main style={{ maxWidth: 720, margin: "0 auto", padding: 24 }}>
-      <h1 style={{ fontSize: 36, fontWeight: "bold", marginBottom: 24 }}>
+      <h1 style={{ fontSize: 32, fontWeight: "bold", marginBottom: 20 }}>
         部活SNS
       </h1>
 
-      <div
-        style={{
-          border: "1px solid #ddd",
-          borderRadius: 16,
-          padding: 20,
-          display: "grid",
-          gap: 16,
-        }}
-      >
-        <p
+      <div style={styles.card}>
+        {/* プロフィールヘッダー */}
+        <div
           style={{
-            fontSize: 24,
-            fontWeight: "bold",
-            margin: 0,
             display: "flex",
             alignItems: "center",
-            flexWrap: "wrap",
+            gap: 16,
+            marginBottom: 18,
           }}
         >
-          ようこそ、{profile?.displayName ?? user.email} さん
-          {role !== "student" && <RoleChip role={role} />}
-        </p>
-
-        <div>
-          <strong>ひとこと:</strong>{" "}
-          {profile?.bio?.trim() ? profile.bio : "まだありません"}
-        </div>
-
-        <div>
-          <strong>自己申告タグ（生徒が設定）</strong>
-          {renderTags(profile?.selfTags)}
-        </div>
-
-        <div>
-          <strong>教員認定タグ（教員が設定）</strong>
-          {renderTags(profile?.certifiedTags, "#9ec0ff", "#f7fbff")}
-        </div>
-
-        <div>
-          <strong>バッジ（教員が設定）</strong>
-          {renderBadges(profile?.badges)}
-        </div>
-
-        <div style={{ marginTop: 8 }}>
-          <HomeCalendar />
-        </div>
-
-        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 8 }}>
-          <Link href="/members">部員一覧へ</Link>
-          <Link href="/profile/edit">プロフィール編集</Link>
-
-          {role === "teacher" && <Link href="/admin/edit">教員用編集</Link>}
-
-          <button
-            onClick={handleLogout}
+          <img
+            src={profile?.photoURL || "/default-avatar.png"}
             style={{
-              padding: "8px 12px",
-              cursor: "pointer",
-              borderRadius: 8,
-              border: "1px solid #ccc",
-              background: "#fff",
+              width: 90,
+              height: 90,
+              borderRadius: "50%",
+              objectFit: "cover",
+              border: "2px solid #ddd",
+              background: "#f5f5f5",
             }}
-          >
+          />
+
+          <div style={{ flex: 1 }}>
+            <h2
+              style={{
+                margin: 0,
+                fontSize: 26,
+                fontWeight: "bold",
+                display: "flex",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: 8,
+              }}
+            >
+              {profile?.displayName || user.email}
+              {role !== "student" && <RoleChip role={role} />}
+              <GradeChip grade={profile?.grade} />
+            </h2>
+
+            <p style={{ margin: "8px 0 0", color: "#666" }}>
+              {profile?.email}
+            </p>
+          </div>
+        </div>
+
+        {/* ひとこと */}
+        <div
+          style={{
+            padding: 14,
+            borderRadius: 12,
+            background: "#f8fafc",
+            border: "1px solid #e5e7eb",
+          }}
+        >
+          <strong>ひとこと</strong>
+          <p style={{ margin: "8px 0 0" }}>
+            {profile?.bio?.trim() ? profile.bio : "まだありません"}
+          </p>
+        </div>
+
+        {/* タグ類 */}
+        <div style={{ display: "grid", gap: 16, marginTop: 18 }}>
+          <div>
+            <strong>自己申告タグ</strong>
+            {renderTags(profile?.selfTags)}
+          </div>
+
+          <div>
+            <strong>教員認定タグ</strong>
+            {renderTags(
+              profile?.certifiedTags,
+              "#fbc02d",
+              "#fff8e1",
+              "#795548"
+            )}
+          </div>
+
+          <div>
+            <strong>バッジ</strong>
+            {renderBadges(profile?.badges)}
+          </div>
+        </div>
+
+        {/* ボタン */}
+        <div
+          style={{
+            display: "flex",
+            gap: 10,
+            flexWrap: "wrap",
+            marginTop: 22,
+          }}
+        >
+          <Link href="/members" style={styles.linkButton}>
+            部員一覧
+          </Link>
+
+          <Link href="/profile/edit" style={styles.buttonSecondary}>
+            プロフィール編集
+          </Link>
+
+          {role === "teacher" && (
+            <Link href="/admin/edit" style={styles.buttonPrimary}>
+              教員用編集
+            </Link>
+          )}
+
+          <button onClick={handleLogout} style={styles.buttonDanger}>
             ログアウト
           </button>
         </div>
+      </div>
+
+      <div style={{ marginTop: 24 }}>
+        <HomeCalendar />
       </div>
     </main>
   );
