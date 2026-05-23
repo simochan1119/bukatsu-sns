@@ -23,7 +23,7 @@ type EventData = {
 type UserData = {
   id: string;
   displayName?: string;
-  availability?: AvailabilityMap;
+  absence?: AvailabilityMap;
   role?: UserRole;
   [key: string]: unknown;
 };
@@ -33,6 +33,16 @@ function formatDateKey(date: Date) {
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const d = String(date.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
+}
+
+function hasSchedule(event?: EventData) {
+  if (!event) return false;
+
+  const title = typeof event.title === "string" ? event.title.trim() : "";
+  const time = typeof event.time === "string" ? event.time.trim() : "";
+  const note = typeof event.note === "string" ? event.note.trim() : "";
+
+  return title !== "" || time !== "" || note !== "";
 }
 
 function getMonthMatrix(baseDate: Date) {
@@ -57,7 +67,7 @@ export default function HomeCalendar() {
   const [users, setUsers] = useState<UserData[]>([]);
   const [events, setEvents] = useState<Record<string, EventData>>({});
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [myAvailability, setMyAvailability] = useState<AvailabilityMap>({});
+  const [myAbsence, setMyAbsence] = useState<AvailabilityMap>({});
   const [role, setRole] = useState<UserRole>("student");
   const [month, setMonth] = useState(() => new Date());
 
@@ -83,7 +93,7 @@ export default function HomeCalendar() {
         setUsers(list);
 
         const me = list.find((u) => u.id === user?.uid);
-        setMyAvailability(me?.availability || {});
+        setMyAbsence(me?.absence || {});
         setRole((me?.role as UserRole) || "student");
 
         const eventSnap = await getDocs(collection(db, "events"));
@@ -123,11 +133,11 @@ export default function HomeCalendar() {
     setSelectedDate(dateKey);
   };
 
-  const toggle = async (dateKey: string) => {
+  const toggleAbsence = async (dateKey: string) => {
     if (!user) return;
 
-    const prevState = { ...myAvailability };
-    const next = { ...myAvailability };
+    const prevState = { ...myAbsence };
+    const next = { ...myAbsence };
 
     if (next[dateKey]) {
       delete next[dateKey];
@@ -135,11 +145,11 @@ export default function HomeCalendar() {
       next[dateKey] = true;
     }
 
-    setMyAvailability(next);
+    setMyAbsence(next);
 
     try {
       await updateDoc(doc(db, "users", user.uid), {
-        availability: next,
+        absence: next,
       });
 
       setUsers((prev) =>
@@ -147,14 +157,14 @@ export default function HomeCalendar() {
           u.id === user.uid
             ? {
                 ...u,
-                availability: next,
+                absence: next,
               }
             : u
         )
       );
     } catch (error) {
-      console.error("参加状態更新エラー:", error);
-      setMyAvailability(prevState);
+      console.error("欠席状態更新エラー:", error);
+      setMyAbsence(prevState);
       alert("保存できませんでした");
     }
   };
@@ -205,8 +215,12 @@ export default function HomeCalendar() {
     }
   };
 
-  const getParticipants = (dateKey: string) => {
-    return users.filter((u) => u.availability?.[dateKey]);
+  const getAbsentees = (dateKey: string) => {
+    return users.filter((u) => u.absence?.[dateKey]);
+  };
+
+  const getAttendees = (dateKey: string) => {
+    return users.filter((u) => !u.absence?.[dateKey]);
   };
 
   const dayNames = ["日", "月", "火", "水", "木", "金", "土"];
@@ -253,7 +267,8 @@ export default function HomeCalendar() {
           {days.map((day) => {
             const key = formatDateKey(day);
             const event = events[key];
-            const isMine = !!myAvailability[key];
+            const hasEvent = hasSchedule(event);
+            const isAbsent = hasEvent && !!myAbsence[key];
             const isToday = key === todayKey;
             const isSelected = key === selectedDate;
             const isCurrentMonth = day.getMonth() === month.getMonth();
@@ -262,8 +277,8 @@ export default function HomeCalendar() {
               "day-cell",
               isToday ? "today" : "",
               isSelected ? "selected" : "",
-              isMine ? "mine" : "",
-              event ? "has-event" : "",
+              isAbsent ? "absent" : "",
+              hasEvent ? "has-event" : "",
               !isCurrentMonth ? "other-month" : "",
             ]
               .filter(Boolean)
@@ -281,15 +296,21 @@ export default function HomeCalendar() {
                 </div>
 
                 <div className="day-middle">
-                  <div className="time-text">
-                    {event?.time?.trim() ? event.time : "-"}
-                  </div>
+                  {hasEvent ? (
+                    <div className="time-text">
+                      {event?.time?.trim() ? event.time : "予定あり"}
+                    </div>
+                  ) : (
+                    <div className="holiday-text">休</div>
+                  )}
                 </div>
 
                 <div className="day-bottom">
-                  <span className={`status-badge ${isMine ? "ok" : "pending"}`}>
-                    {isMine ? "参加可" : "未定"}
-                  </span>
+                  {hasEvent && (
+                    <span className={`status-badge ${isAbsent ? "absent" : "ok"}`}>
+                      {isAbsent ? "欠席" : "出席予定"}
+                    </span>
+                  )}
                 </div>
               </button>
             );
@@ -312,7 +333,7 @@ export default function HomeCalendar() {
             </div>
           </div>
 
-          {events[selectedDate] ? (
+          {hasSchedule(events[selectedDate]) ? (
             <div className="detail-body">
               <p className="detail-row">
                 <strong>時間：</strong>
@@ -332,15 +353,17 @@ export default function HomeCalendar() {
           )}
 
           <div className="action-row">
-            <button
-              type="button"
-              onClick={() => toggle(selectedDate)}
-              className={`action-btn ${
-                myAvailability[selectedDate] ? "cancel-btn" : "join-btn"
-              }`}
-            >
-              {myAvailability[selectedDate] ? "参加取り消し" : "参加する"}
-            </button>
+            {hasSchedule(events[selectedDate]) && (
+              <button
+                type="button"
+                onClick={() => toggleAbsence(selectedDate)}
+                className={`action-btn ${
+                  myAbsence[selectedDate] ? "join-btn" : "cancel-btn"
+                }`}
+              >
+                {myAbsence[selectedDate] ? "欠席を取り消す" : "欠席する"}
+              </button>
+            )}
 
             {canEditEvent && (
               <button
@@ -353,27 +376,53 @@ export default function HomeCalendar() {
             )}
           </div>
 
-          <div className="participants-box">
-            <h4 className="participants-title">参加できる人</h4>
+          {hasSchedule(events[selectedDate]) && (
+            <>
+              <div className="participants-box">
+                <h4 className="participants-title">出席する人</h4>
 
-            {getParticipants(selectedDate).length > 0 ? (
-              <ul className="participants-list">
-                {getParticipants(selectedDate).map((u) => (
-                  <li key={u.id} className="participant-item">
-                    {u.displayName || "名前未設定"}
-                    {u.role === "teacher" && (
-                      <span className="mini-role teacher">teacher</span>
-                    )}
-                    {u.role === "leader" && (
-                      <span className="mini-role leader">leader</span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="participants-empty">まだいません</p>
-            )}
-          </div>
+                {getAttendees(selectedDate).length > 0 ? (
+                  <ul className="participants-list">
+                    {getAttendees(selectedDate).map((u) => (
+                      <li key={u.id} className="participant-item">
+                        {u.displayName || "名前未設定"}
+                        {u.role === "teacher" && (
+                          <span className="mini-role teacher">teacher</span>
+                        )}
+                        {u.role === "leader" && (
+                          <span className="mini-role leader">leader</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="participants-empty">出席予定の人はいません</p>
+                )}
+              </div>
+
+              <div className="participants-box">
+                <h4 className="participants-title">欠席する人</h4>
+
+                {getAbsentees(selectedDate).length > 0 ? (
+                  <ul className="participants-list">
+                    {getAbsentees(selectedDate).map((u) => (
+                      <li key={u.id} className="participant-item">
+                        {u.displayName || "名前未設定"}
+                        {u.role === "teacher" && (
+                          <span className="mini-role teacher">teacher</span>
+                        )}
+                        {u.role === "leader" && (
+                          <span className="mini-role leader">leader</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="participants-empty">欠席予定の人はいません</p>
+                )}
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -608,8 +657,8 @@ export default function HomeCalendar() {
           background: linear-gradient(180deg, #eff6ff 0%, #dbeafe 100%);
         }
 
-        .day-cell.mine {
-          background: linear-gradient(180deg, #ecfdf5 0%, #d1fae5 100%);
+        .day-cell.absent {
+          background: linear-gradient(180deg, #fff1f2 0%, #ffe4e6 100%);
         }
 
         .day-cell.today {
@@ -650,6 +699,14 @@ export default function HomeCalendar() {
           letter-spacing: -0.03em;
         }
 
+        .holiday-text {
+          font-size: 1.15rem;
+          line-height: 1;
+          color: #9ca3af;
+          font-weight: 900;
+          letter-spacing: 0.08em;
+        }
+
         .time-text {
           font-size: 0.82rem;
           line-height: 1.2;
@@ -684,10 +741,10 @@ export default function HomeCalendar() {
           border: 1px solid #bbf7d0;
         }
 
-        .status-badge.pending {
+        .status-badge.absent {
           background: #ffffffcc;
-          color: #475569;
-          border: 1px solid #e5e7eb;
+          color: #991b1b;
+          border: 1px solid #fecaca;
         }
 
         .detail-header {
@@ -985,6 +1042,10 @@ export default function HomeCalendar() {
             font-size: 1.25rem;
           }
 
+          .holiday-text {
+            font-size: 0.95rem;
+          }
+
           .time-text {
             font-size: 0.72rem;
             line-height: 1.15;
@@ -1018,6 +1079,10 @@ export default function HomeCalendar() {
 
           .day-number {
             font-size: 1.15rem;
+          }
+
+          .holiday-text {
+            font-size: 0.9rem;
           }
 
           .time-text {
