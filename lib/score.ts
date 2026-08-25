@@ -15,13 +15,8 @@ export async function calculateUserScore(uid: string): Promise<number | null> {
   if (userData.role === "teacher") return null;
 
   const usersSnap = await getDocs(collection(db, "users"));
-  let leaderData: Record<string, any> | null = null;
-  usersSnap.forEach(snap => {
-    const data = snap.data();
-    if (data.role === "leader") {
-      leaderData = data;
-    }
-  });
+  const leaderDoc = usersSnap.docs.find(d => d.data().role === "leader");
+  const leaderData = leaderDoc ? leaderDoc.data() : null;
 
   if (!leaderData) return null;
 
