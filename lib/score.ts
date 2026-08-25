@@ -15,7 +15,7 @@ export async function calculateUserScore(uid: string): Promise<number | null> {
   if (userData.role === "teacher") return null;
 
   const usersSnap = await getDocs(collection(db, "users"));
-  let leaderData = null;
+  let leaderData: Record<string, any> | null = null;
   usersSnap.forEach(snap => {
     const data = snap.data();
     if (data.role === "leader") {
