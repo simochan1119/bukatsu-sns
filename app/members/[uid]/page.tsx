@@ -7,6 +7,7 @@ import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { BadgeChip, GradeChip, RoleChip } from "@/app/components/BadgeChips";
 import { styles } from "@/app/components/ui";
+import { calculateUserScore } from "@/lib/score";
 
 type Role = "student" | "teacher" | "leader";
 
@@ -33,6 +34,7 @@ type UserProfile = {
   badges: string[];
   bio?: string;
   photoURL?: string;
+  score?: number | null;
 };
 
 export default function MemberProfilePage() {
@@ -62,6 +64,14 @@ export default function MemberProfilePage() {
           badges: data.badges ?? [],
           bio: data.bio ?? "",
           photoURL: data.photoURL,
+          score: null,
+        });
+
+        // 非同期でスコアを取得してセット
+        calculateUserScore(uid).then((score) => {
+          if (score !== null) {
+            setProfile((prev) => (prev ? { ...prev, score } : prev));
+          }
         });
       }
 
@@ -115,6 +125,24 @@ export default function MemberProfilePage() {
           {profile.displayName}
           {profile.role !== "student" && <RoleChip role={profile.role} />}
           <GradeChip grade={profile.grade} />
+          {profile.score !== undefined && profile.score !== null && (
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: "linear-gradient(135deg, #f59e0b, #d97706)",
+                color: "#fff",
+                borderRadius: 999,
+                padding: "4px 12px",
+                fontSize: 16,
+                fontWeight: "bold",
+                boxShadow: "0 2px 8px rgba(245, 158, 11, 0.4)",
+              }}
+            >
+              🏆 {profile.score}pt
+            </span>
+          )}
         </h1>
       </div>
 

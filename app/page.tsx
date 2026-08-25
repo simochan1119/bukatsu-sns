@@ -6,6 +6,7 @@ import { signOut, User } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { observeAuthState } from "@/lib/auth";
+import { calculateUserScore } from "@/lib/score";
 import HomeCalendar from "@/app/components/HomeCalendar";
 import { BadgeChip, GradeChip, RoleChip } from "@/app/components/BadgeChips";
 import { styles } from "@/app/components/ui";
@@ -23,6 +24,7 @@ type UserProfile = {
   certifiedTags?: string[];
   badges?: string[];
   photoURL?: string;
+  score?: number | null;
 };
 
 export default function Home() {
@@ -59,6 +61,14 @@ export default function Home() {
               : [],
             badges: Array.isArray(data.badges) ? data.badges : [],
             photoURL: data.photoURL ?? "",
+            score: null,
+          });
+
+          // 非同期でスコアを取得してセット
+          calculateUserScore(firebaseUser.uid).then((score) => {
+            if (score !== null) {
+              setProfile((prev) => (prev ? { ...prev, score } : prev));
+            }
           });
         } else {
           setProfile(null);
@@ -193,6 +203,24 @@ export default function Home() {
               {profile?.displayName || user.email}
               {role !== "student" && <RoleChip role={role} />}
               <GradeChip grade={profile?.grade} />
+              {profile?.score !== undefined && profile?.score !== null && (
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    background: "linear-gradient(135deg, #f59e0b, #d97706)",
+                    color: "#fff",
+                    borderRadius: 999,
+                    padding: "4px 12px",
+                    fontSize: 16,
+                    fontWeight: "bold",
+                    boxShadow: "0 2px 8px rgba(245, 158, 11, 0.4)",
+                  }}
+                >
+                  🏆 {profile.score}pt
+                </span>
+              )}
             </h2>
 
             <p style={{ margin: "8px 0 0", color: "#666" }}>

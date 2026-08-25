@@ -31,6 +31,8 @@ type FirestoreUserDoc = {
   selfTags?: string[];
   certifiedTags?: string[];
   badges?: string[];
+  manualPoints?: number;
+  absence?: Record<string, boolean>;
 };
 
 type FirestoreBadgeMasterDoc = {
@@ -44,6 +46,8 @@ type AppUser = {
   grade?: number;
   certifiedTags: string[];
   badges: string[];
+  manualPoints: number;
+  absence: Record<string, boolean>;
 };
 
 type BadgeMasterItem = {
@@ -59,6 +63,7 @@ export default function AdminEditPage() {
     {}
   );
   const [newBadgeMap, setNewBadgeMap] = useState<Record<string, string>>({});
+  const [absenceInputs, setAbsenceInputs] = useState<Record<string, { date: string }>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -102,6 +107,8 @@ export default function AdminEditPage() {
               ? data.certifiedTags
               : [],
             badges: Array.isArray(data.badges) ? data.badges : [],
+            manualPoints: typeof data.manualPoints === "number" ? data.manualPoints : 0,
+            absence: data.absence || {},
           };
         });
 
@@ -142,6 +149,39 @@ export default function AdminEditPage() {
       value.trim() === "" || Number.isNaN(num) ? undefined : num;
 
     setUsers(newUsers);
+  };
+
+  const handleManualPointsChange = (index: number, value: string) => {
+    const newUsers = [...users];
+    const num = Number(value);
+
+    newUsers[index].manualPoints =
+      value.trim() === "" || Number.isNaN(num) ? 0 : num;
+
+    setUsers(newUsers);
+  };
+
+  const handleAbsenceUpdate = (index: number, isAbsent: boolean) => {
+    const user = users[index];
+    const date = absenceInputs[user.uid]?.date;
+    if (!date) {
+      alert("日付を入力してください");
+      return;
+    }
+    
+    const newUsers = [...users];
+    const currentAbsence = { ...newUsers[index].absence };
+    
+    if (isAbsent) {
+      currentAbsence[date] = true;
+    } else {
+      delete currentAbsence[date];
+    }
+    
+    newUsers[index].absence = currentAbsence;
+    setUsers(newUsers);
+    
+    alert(`${user.displayName}さんの ${date} を ${isAbsent ? '欠席' : '出席'} に変更しました。\n※最終的な保存は下部の「保存」ボタンを押してください。`);
   };
 
   const handleCertifiedTagsChange = (index: number, value: string) => {
@@ -217,6 +257,8 @@ export default function AdminEditPage() {
         grade: user.grade ?? null,
         certifiedTags: normalizeArray(user.certifiedTags),
         badges: normalizeArray(user.badges),
+        manualPoints: user.manualPoints,
+        absence: user.absence,
       });
 
       alert(`${user.displayName} を保存できました`);
@@ -302,6 +344,77 @@ export default function AdminEditPage() {
                 <option value="2">2年生</option>
                 <option value="3">3年生</option>
               </select>
+            </div>
+
+            <div>
+              <label style={{ display: "block", marginBottom: 6 }}>
+                手動ポイント (微調整用)
+              </label>
+              <input
+                type="number"
+                value={u.manualPoints}
+                onChange={(e) => handleManualPointsChange(index, e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: 10,
+                  border: "1px solid #ccc",
+                  borderRadius: 8,
+                }}
+              />
+            </div>
+
+            <div style={{ background: "#f8fafc", padding: 12, borderRadius: 8, border: "1px solid #e2e8f0" }}>
+              <label style={{ display: "block", marginBottom: 6, fontWeight: "bold" }}>
+                特定日の出欠を修正 (先生専用)
+              </label>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <input
+                  type="date"
+                  value={absenceInputs[u.uid]?.date || ""}
+                  onChange={(e) =>
+                    setAbsenceInputs((prev) => ({
+                      ...prev,
+                      [u.uid]: { date: e.target.value },
+                    }))
+                  }
+                  style={{
+                    padding: 10,
+                    border: "1px solid #ccc",
+                    borderRadius: 8,
+                    flex: "1 1 150px",
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => handleAbsenceUpdate(index, false)}
+                  style={{
+                    padding: "8px 12px",
+                    cursor: "pointer",
+                    borderRadius: 8,
+                    border: "1px solid #ccc",
+                    background: "#dcfce7",
+                    color: "#166534",
+                    fontWeight: "bold"
+                  }}
+                >
+                  出席にする
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleAbsenceUpdate(index, true)}
+                  style={{
+                    padding: "8px 12px",
+                    cursor: "pointer",
+                    borderRadius: 8,
+                    border: "1px solid #ccc",
+                    background: "#fee2e2",
+                    color: "#991b1b",
+                    fontWeight: "bold"
+                  }}
+                >
+                  欠席にする
+                </button>
+              </div>
             </div>
 
             <div>

@@ -136,6 +136,14 @@ export default function HomeCalendar() {
   const toggleAbsence = async (dateKey: string) => {
     if (!user) return;
 
+    if (role !== "teacher") {
+      const todayString = formatDateKey(new Date());
+      if (dateKey <= todayString) {
+        alert("当日以前の変更は許可されていません。\n部長、顧問に連絡を取ってください。");
+        return;
+      }
+    }
+
     const prevState = { ...myAbsence };
     const next = { ...myAbsence };
 
