@@ -37,6 +37,7 @@ type Member = {
   bio?: string;
   photoURL?: string;
   score: number | null;
+  attendanceRate: number | null;
   manualPoints: number;
 };
 
@@ -58,10 +59,6 @@ export default function MembersPage() {
       const leaderDoc = usersSnap.docs.find((d) => d.data().role === "leader");
       const leaderData = leaderDoc ? leaderDoc.data() : null;
 
-      // hasSchedule logic is defined in score.ts, but here we can just use simple check or export it.
-      // Since it's not exported, I'll copy the simple check or export it.
-      // Wait, let's just assume we export it from lib/score.ts. Actually I didn't export hasSchedule.
-      // Let's just do it manually here.
       const allEvents = eventsSnap.docs
         .filter((d) => {
           const data = d.data();
@@ -74,7 +71,7 @@ export default function MembersPage() {
 
       const list: Member[] = usersSnap.docs.map((docSnap) => {
         const data = docSnap.data() as FirestoreUserDoc;
-        const score = calculateScoreSync(data, leaderData, allEvents);
+        const result = calculateScoreSync(data, leaderData, allEvents);
 
         return {
           uid: docSnap.id,
@@ -87,7 +84,8 @@ export default function MembersPage() {
           certifiedTags: data.certifiedTags ?? [],
           bio: data.bio ?? "",
           photoURL: data.photoURL,
-          score,
+          score: result ? result.score : null,
+          attendanceRate: result ? result.attendanceRate : null,
           manualPoints: data.manualPoints ?? 0,
         };
       });
@@ -157,9 +155,9 @@ export default function MembersPage() {
                   <div style={{ fontSize: 18, fontWeight: "bold", color: "#d97706" }}>
                     🏆 {member.score}pt
                   </div>
-                  {member.manualPoints !== 0 && (
-                    <div style={{ fontSize: 12, color: "#6b7280" }}>
-                      実装済: {member.manualPoints > 0 ? `+${member.manualPoints}` : member.manualPoints}pt
+                  {member.attendanceRate !== null && (
+                    <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
+                      出席率: {member.attendanceRate}%
                     </div>
                   )}
                 </div>

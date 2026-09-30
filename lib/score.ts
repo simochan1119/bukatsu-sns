@@ -12,7 +12,7 @@ export function calculateScoreSync(
   userData: any,
   leaderData: any,
   allEvents: string[]
-): number | null {
+): { score: number; attendanceRate: number } | null {
   if (userData.role === "teacher") return null;
   if (!leaderData) return null;
 
@@ -58,11 +58,14 @@ export function calculateScoreSync(
   const bonusPoints = (badgesCount + certifiedTagsCount) * 3;
 
   if (leaderAttendance === 0) {
-    return (userData.manualPoints || 0) + bonusPoints;
+    return { score: (userData.manualPoints || 0) + bonusPoints, attendanceRate: 0 };
   }
 
   const rawScore = (studentAttendance / leaderAttendance) * 100;
-  return Math.floor(rawScore) + (userData.manualPoints || 0) + bonusPoints;
+  return {
+    score: Math.floor(rawScore) + (userData.manualPoints || 0) + bonusPoints,
+    attendanceRate: Math.floor(rawScore)
+  };
 }
 
 export async function calculateUserScore(uid: string): Promise<number | null> {
@@ -79,5 +82,6 @@ export async function calculateUserScore(uid: string): Promise<number | null> {
     .filter((d) => hasSchedule(d.data()))
     .map((d) => d.id);
 
-  return calculateScoreSync(userData, leaderData, allEvents);
+  const result = calculateScoreSync(userData, leaderData, allEvents);
+  return result ? result.score : null;
 }
