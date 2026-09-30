@@ -155,11 +155,6 @@ export default function MembersPage() {
                   <div style={{ fontSize: 18, fontWeight: "bold", color: "#d97706" }}>
                     🏆 {member.score}pt
                   </div>
-                  {member.attendanceRate !== null && (
-                    <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
-                      出席率: {member.attendanceRate}%
-                    </div>
-                  )}
                 </div>
               )}
             </div>

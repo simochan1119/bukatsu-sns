@@ -17,14 +17,14 @@ export function calculateScoreSync(
   if (!leaderData) return null;
 
   const createdAt = userData.createdAt as Timestamp;
-  let createdDateString = "2026-07-01";
+  let createdDateString = "2026-05-01";
   if (createdAt) {
     const date = createdAt.toDate();
     const y = date.getFullYear();
     const m = String(date.getMonth() + 1).padStart(2, "0");
     const d = String(date.getDate()).padStart(2, "0");
     const userCreatedAt = `${y}-${m}-${d}`;
-    if (userCreatedAt > "2026-07-01") {
+    if (userCreatedAt > "2026-05-01") {
       createdDateString = userCreatedAt;
     }
   }
