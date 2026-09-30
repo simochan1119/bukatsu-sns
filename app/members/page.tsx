@@ -6,6 +6,7 @@ import { collection, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { BadgeChip, GradeChip, RoleChip } from "@/app/components/BadgeChips";
 import { styles } from "@/app/components/ui";
+import { calculateScoreSync } from "@/lib/score";
 
 type Role = "student" | "teacher" | "leader";
 
@@ -19,6 +20,9 @@ type FirestoreUserDoc = {
   certifiedTags?: string[];
   bio?: string;
   photoURL?: string;
+  createdAt?: any;
+  absence?: Record<string, boolean>;
+  manualPoints?: number;
 };
 
 type Member = {
@@ -32,6 +36,8 @@ type Member = {
   certifiedTags: string[];
   bio?: string;
   photoURL?: string;
+  score: number | null;
+  manualPoints: number;
 };
 
 const rolePriority: Record<Role, number> = {
@@ -46,10 +52,29 @@ export default function MembersPage() {
 
   useEffect(() => {
     const fetchMembers = async () => {
-      const snap = await getDocs(collection(db, "users"));
+      const usersSnap = await getDocs(collection(db, "users"));
+      const eventsSnap = await getDocs(collection(db, "events"));
 
-      const list: Member[] = snap.docs.map((docSnap) => {
+      const leaderDoc = usersSnap.docs.find((d) => d.data().role === "leader");
+      const leaderData = leaderDoc ? leaderDoc.data() : null;
+
+      // hasSchedule logic is defined in score.ts, but here we can just use simple check or export it.
+      // Since it's not exported, I'll copy the simple check or export it.
+      // Wait, let's just assume we export it from lib/score.ts. Actually I didn't export hasSchedule.
+      // Let's just do it manually here.
+      const allEvents = eventsSnap.docs
+        .filter((d) => {
+          const data = d.data();
+          const title = typeof data?.title === "string" ? data.title.trim() : "";
+          const time = typeof data?.time === "string" ? data.time.trim() : "";
+          const note = typeof data?.note === "string" ? data.note.trim() : "";
+          return title !== "" || time !== "" || note !== "";
+        })
+        .map((d) => d.id);
+
+      const list: Member[] = usersSnap.docs.map((docSnap) => {
         const data = docSnap.data() as FirestoreUserDoc;
+        const score = calculateScoreSync(data, leaderData, allEvents);
 
         return {
           uid: docSnap.id,
@@ -62,6 +87,8 @@ export default function MembersPage() {
           certifiedTags: data.certifiedTags ?? [],
           bio: data.bio ?? "",
           photoURL: data.photoURL,
+          score,
+          manualPoints: data.manualPoints ?? 0,
         };
       });
 
@@ -93,34 +120,50 @@ export default function MembersPage() {
           <div key={member.uid} style={styles.card}>
             
             {/* 上段 */}
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <img
-                src={member.photoURL || "/default-avatar.png"}
-                style={{
-                  width: 56,
-                  height: 56,
-                  borderRadius: "50%",
-                  objectFit: "cover",
-                }}
-              />
-
-              <div>
-                <h2
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <img
+                  src={member.photoURL || "/default-avatar.png"}
                   style={{
-                    margin: 0,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    flexWrap: "wrap",
+                    width: 56,
+                    height: 56,
+                    borderRadius: "50%",
+                    objectFit: "cover",
                   }}
-                >
-                  {member.displayName}
-                  {member.role !== "student" && (
-                    <RoleChip role={member.role} />
-                  )}
-                  <GradeChip grade={member.grade} />
-                </h2>
+                />
+
+                <div>
+                  <h2
+                    style={{
+                      margin: 0,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    {member.displayName}
+                    {member.role !== "student" && (
+                      <RoleChip role={member.role} />
+                    )}
+                    <GradeChip grade={member.grade} />
+                  </h2>
+                </div>
               </div>
+
+              {/* スコア・ポイント表示 */}
+              {member.score !== null && (
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontSize: 18, fontWeight: "bold", color: "#d97706" }}>
+                    🏆 {member.score}pt
+                  </div>
+                  {member.manualPoints !== 0 && (
+                    <div style={{ fontSize: 12, color: "#6b7280" }}>
+                      実装済: {member.manualPoints > 0 ? `+${member.manualPoints}` : member.manualPoints}pt
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* 教員タグ */}
